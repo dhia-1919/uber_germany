@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Uber Germany – Stock, Sales and Cost</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<style>
+:root{
+  --bg:#EEF1EF; --surface:#FFFFFF; --ink:#18211D; --muted:#5E6A64; --line:#D3DAD6;
+  --yellow:#E2A800; --yellow-soft:#FBEFC4; --slate:#2F5D62; --slate-soft:#D7E5E6; --red:#B4412F;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#121715; --surface:#1A211E; --ink:#E8EEEA; --muted:#9AA6A0; --line:#2D3632;
+    --yellow:#F2C230; --yellow-soft:#3B3218; --slate:#7FB4B9; --slate-soft:#1E3437; --red:#E58670;
+    color-scheme:dark;
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+
+/* Header */
+header.top{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;
+  padding-bottom:20px;border-bottom:2px solid var(--ink)}
+h1{margin:0;font-size:clamp(26px,3.6vw,40px);line-height:1.05;font-weight:800;font-stretch:78%;letter-spacing:-.01em;max-width:22ch}
+.subtitle{margin:8px 0 0;color:var(--muted);max-width:70ch}
+.sync{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--slate);flex:none}
+.dot.loading{background:var(--yellow);animation:pulse 1s infinite alternate}
+.dot.error{background:var(--red)}
+@keyframes pulse{to{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.loading{animation:none}}
+.btn{border:1.5px solid var(--ink);background:transparent;padding:7px 14px;border-radius:4px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--ink);color:var(--bg)}
+
+.btn.primary{background:var(--ink);color:var(--bg)}
+.btn.primary:hover{background:var(--slate);border-color:var(--slate)}
+.range .spacer{flex:1}
+.cell .yr-start{position:absolute;top:-1px;left:0;right:0;height:3px;background:var(--ink)}
+.banner.warn{border-left-color:var(--yellow)}
+
+/* Password gate */
+.gate{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;
+  background:repeating-linear-gradient(-45deg,var(--yellow) 0 14px,var(--ink) 14px 28px)}
+.gate form{width:min(400px,100%);background:var(--surface);border-radius:6px;padding:28px 28px 22px}
+.gate h1{font-size:28px;max-width:none}
+.gate p{color:var(--muted);margin:8px 0 20px}
+.gate label{display:block;font-weight:600;font-size:13px;margin-bottom:6px}
+.gate input{width:100%;font:inherit;padding:10px 12px;border:1.5px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.gate input:focus{border-color:var(--ink);outline:none}
+.gate .row{display:flex;gap:10px;align-items:center;margin-top:14px}
+.gate .err{color:var(--red);font-size:13px;margin:12px 0 0;min-height:1.2em}
+.banner{display:none;margin:16px 0 0;padding:12px 16px;border-left:4px solid var(--red);background:var(--surface);color:var(--ink)}
+.banner.show{display:block}
+
+/* Range controls + month rail */
+.range{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:28px 0 12px;font-size:17px}
+.range select{background:var(--surface);border:1.5px solid var(--line);border-radius:4px;padding:6px 10px;font-weight:600}
+.range .hint{color:var(--muted);font-size:13px}
+.rail{display:grid;grid-template-columns:repeat(var(--n,12),minmax(74px,1fr));gap:4px;overflow-x:auto;scrollbar-width:thin;
+  background:repeating-linear-gradient(-45deg,var(--yellow) 0 10px,var(--ink) 10px 20px);padding:4px;border-radius:6px}
+.cell{position:relative;background:var(--surface);border:0;border-radius:3px;padding:10px 8px 8px;text-align:left;cursor:pointer;min-height:104px;
+  display:flex;flex-direction:column;justify-content:space-between;opacity:.55}
+.cell.in{opacity:1}
+.cell.edge{box-shadow:inset 0 -4px 0 var(--yellow)}
+.cell.nodata .val{color:var(--muted)}
+.cell .m{font-weight:700;font-stretch:85%}
+.cell .y{font-size:11px;color:var(--muted)}
+.cell .bar{height:28px;display:flex;align-items:flex-end}
+.cell .bar i{display:block;width:100%;background:var(--slate);border-radius:2px 2px 0 0;min-height:2px}
+.cell .val{font-size:12px;font-weight:600}
+@media (max-width:760px){
+  .cell{min-height:88px}
+}
+
+/* Summary ledger */
+.ledger{margin-top:32px;background:var(--surface);border-radius:6px}
+.ledger-row{display:grid;grid-template-columns:120px repeat(5,minmax(0,1fr));border-top:1px solid var(--line)}
+.ledger-row:first-child{border-top:0}
+.ledger-row h2{margin:0;padding:18px 16px;font-size:14px;font-weight:700;color:var(--muted);font-stretch:85%}
+.fig{padding:16px;border-left:1px solid var(--line)}
+.fig .k{font-size:13px;color:var(--muted)}
+.fig .v{font-size:clamp(20px,2.3vw,28px);font-weight:750;font-stretch:88%;line-height:1.15;margin-top:4px}
+.fig .n{font-size:12px;color:var(--muted);margin-top:4px}
+.fig.key .v{color:var(--slate)}
+@media (max-width:960px){
+  .ledger-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ledger-row h2{grid-column:1/-1;padding-bottom:0}
+  .fig{border-left:0;border-top:1px solid var(--line)}
+}
+
+/* Panels */
+section.panel{margin-top:28px;background:var(--surface);border-radius:6px;padding:20px}
+.panel h2{margin:0 0 4px;font-size:19px;font-weight:750;font-stretch:88%}
+.panel .lead{margin:0 0 16px;color:var(--muted);font-size:13px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:28px}
+.grid2 section.panel{margin-top:28px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr;gap:0}}
+.chart-box{position:relative;height:320px}
+.chart-box.small{height:260px}
+.empty{display:none;color:var(--muted);padding:40px 0;text-align:center}
+.empty.show{display:block}
+
+.mix{list-style:none;margin:0;padding:0}
+.mix li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line)}
+.mix li:first-child{border-top:0}
+.mix .name{font-weight:600}
+.mix .num{text-align:right;font-weight:700}
+.mix .track{grid-column:1/-1;height:8px;background:var(--slate-soft);border-radius:4px;overflow:hidden}
+.mix .track i{display:block;height:100%;background:var(--yellow)}
+.mix .share{color:var(--muted);font-weight:500;font-size:12px;margin-left:6px}
+
+/* Tables */
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:860px}
+th,td{padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1;white-space:normal;min-width:190px}
+thead th{font-weight:700;color:var(--muted);font-size:12px}
+td.out,th.out{opacity:.38}
+tr.strong td{font-weight:700}
+td.blank{color:var(--muted)}
+
+/* Items */
+.items details{border-top:1px solid var(--line)}
+.items details:first-of-type{border-top:0}
+.items summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1.6fr) repeat(4,minmax(0,1fr)) 24px;gap:12px;align-items:center;padding:14px 4px}
+.items summary::-webkit-details-marker{display:none}
+.items summary .nm{font-weight:700}
+.items summary .st span{display:block;font-size:12px;color:var(--muted)}
+.items summary .st b{font-size:16px}
+.items summary .chev{transition:transform .2s;justify-self:end}
+.items details[open] .chev{transform:rotate(90deg)}
+.items .body{padding:0 0 18px}
+@media (max-width:760px){
+  .items summary{grid-template-columns:repeat(2,minmax(0,1fr)) 24px}
+  .items summary .nm{grid-column:1/-1}
+}
+footer{margin-top:36px;color:var(--muted);font-size:13px;max-width:80ch}
+</style>
+</head>
+<body>
+<div class="gate" id="gate">
+  <form id="gateForm" autocomplete="off">
+    <h1>Uber Germany dashboard</h1>
+    <p>Enter the password to open the dashboard. You’ll stay signed in until you close this tab.</p>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <div class="row"><button class="btn primary" type="submit">Open dashboard</button></div>
+    <p class="err" id="gateErr" role="alert"></p>
+  </form>
+</div>
+<div class="wrap" id="app" hidden>
+  <header class="top">
+    <div>
+      <h1 id="title">Uber Germany stock, sales and cost report</h1>
+      <p class="subtitle" id="subtitle">Loading the latest figures from the sheet…</p>
+    </div>
+    <div class="sync">
+      <span class="dot loading" id="dot"></span>
+      <span id="syncText">Loading</span>
+      <button class="btn" id="refreshBtn" type="button">Refresh now</button>
+    </div>
+  </header>
+  <div class="banner" id="banner" role="alert"></div>
+
+  <div class="range">
+    <span>Showing</span>
+    <select id="startSel" aria-label="First month"></select>
+    <span>to</span>
+    <select id="endSel" aria-label="Last month"></select>
+    <span class="hint" id="railHint">Or click two months below.</span>
+    <span class="spacer"></span>
+    <button class="btn" id="exportBtn" type="button">Export this period</button>
+  </div>
+  <div class="rail" id="rail" aria-label="Closing stock by month"></div>
+
+  <div class="ledger" id="ledger">
+    <div class="ledger-row" id="stockRow"><h2>Stock</h2></div>
+    <div class="ledger-row" id="moneyRow"><h2>Money</h2></div>
+  </div>
+
+  <section class="panel">
+    <h2>Stock movement by month</h2>
+    <p class="lead">Inbound units above the line, units out below it, closing stock as the line. Months outside your range are faded.</p>
+    <div class="chart-box"><canvas id="flowChart"></canvas></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Item mix</h2>
+      <p class="lead" id="mixLead">Units out in the selected range.</p>
+      <ul class="mix" id="mix"></ul>
+    </section>
+    <section class="panel">
+      <h2>Sales and costs</h2>
+      <p class="lead">eShop sales value against storage and delivery cost, with the net movement as the line.</p>
+      <div class="chart-box small" id="moneyBox"><canvas id="moneyChart"></canvas></div>
+      <p class="empty" id="moneyEmpty">No sales or cost figures have been entered for this range yet.</p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Month by month, all items</h2>
+    <p class="lead">Calculated from the Data tab. Closing stock is opening stock plus inbound minus units out.</p>
+    <div class="scroll"><table id="monthTable"></table></div>
+  </section>
+
+  <section class="panel items">
+    <h2>By item</h2>
+    <p class="lead">Open an item to see its month-by-month detail.</p>
+    <div id="items"></div>
+  </section>
+
+  <footer>
+    Figures come straight from the Data tab of the Google Sheet and refresh every minute while this page is open, and again whenever you come back to the tab. All values in EUR.
+  </footer>
+</div>
+
+<script>
+/* ===================== Settings ===================== */
+const CONFIG = {
+  SHEET_ID: "1ifeW2lP55xsRbZaqe7oW2PMYRO87jTZNGKgmBjHn0VY",
+  // Data tabs, oldest first. To add a year, add a line with the tab name and its gid
+  // (the number after "gid=" in the address bar when that tab is open).
+  // publishedCsvUrl is optional: a "Publish to web" CSV link for that tab, used first if set.
+  SHEETS: [
+    {name: "Data",      gid: "222571052",  publishedCsvUrl: ""},
+    {name: "Data 2027", gid: "1077120213", publishedCsvUrl: ""}
+  ],
+  // SHA-256 of the dashboard password (the password itself is not stored in this file)
+  PASSWORD_SHA256: "f3e8612b291d4b57f1597a2ff15f642240f6670bfbf8ee812a2678088de67e2a",
+  REFRESH_SECONDS: 60,
+  TITLE: "Uber Germany - Stock, Sales and Cost Report",
+  SUBTITLE: "Prepared by Boolanga | All values in EUR | Stock held in the German warehouse and, for the Boolanga bag, the central warehouse",
+  // Purchase cost per unit, used for closing stock value. Use the item names exactly as in the Data tab.
+  // A row in the Data tab called "<Item name> - unit cost (EUR)" overrides these.
+  UNIT_COSTS: {
+    // "Bike Baskets": 12.50,
+  }
+};
+
+/* ===================== Helpers ===================== */
+const $ = id => document.getElementById(id);
+const txt = c => (c ?? "").toString().trim();
+const MONTH_RE = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{4}$/i;
+const fmtUnits = new Intl.NumberFormat("en-GB", {maximumFractionDigits: 0});
+const fmtEur = new Intl.NumberFormat("en-GB", {style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2});
+const isMoney = label => /value|cost|paid|credited|balance|movement|eur/i.test(label);
+const fmt = (v, money) => v === null || v === undefined ? "–" : (money ? fmtEur.format(v) : fmtUnits.format(v));
+const sum = (arr, s, e) => arr.slice(s, e + 1).reduce((a, v) => a + (v || 0), 0);
+const titleCase = s => s === s.toUpperCase() ? s.toLowerCase().replace(/\b([a-z])/g, m => m.toUpperCase()) : s;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function num(c){
+  let s = txt(c).replace(/[€$£\s\u00a0]/g, "");
+  if (s === "") return null;
+  if (/^[-–—]+$/.test(s)) return 0;
+  const neg = /^\(.*\)$/.test(s) || s.startsWith("-");
+  s = s.replace(/[(),%]/g, "").replace(/^-/, "");
+  const n = parseFloat(s);
+  return isNaN(n) ? null : (neg ? -n : n);
+}
+
+function parseCSV(text){
+  const rows = []; let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if (q){
+      if (ch === '"'){ if (text[i+1] === '"'){ field += '"'; i++; } else q = false; }
+      else field += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (ch !== "\r") field += ch;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+/* ===================== Loading ===================== */
+async function loadCsv(sheet){
+  const base = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}`;
+  const urls = [];
+  if (sheet.publishedCsvUrl) urls.push(sheet.publishedCsvUrl);
+  urls.push(`${base}/export?format=csv&gid=${sheet.gid}`);
+  urls.push(`${base}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet.name)}`);
+  let lastErr;
+  for (const u of urls){
+    try{
+      const r = await fetch(u + (u.includes("?") ? "&" : "?") + "_=" + Date.now(), {cache: "no-store"});
+      if (!r.ok) throw new Error("the sheet answered with HTTP " + r.status);
+      const t = await r.text();
+      if (/^\s*<(!doctype|html)/i.test(t)) throw new Error("Google returned a sign-in page instead of data");
+      return t;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+/* ===================== Reading the Data tab ===================== */
+// Each item row in the Data tab is labelled "<Item name> - <measure>", e.g.
+// "Bike Baskets - inbound units". Money rows have no item name, e.g. "Storage cost (EUR)".
+const addN = (...vals) => vals.every(v => v === null || v === undefined) ? null : vals.reduce((a, v) => a + (v || 0), 0);
+
+function readSheet(rows, tabName){
+  // Month labels: the "Month label" row, or any row with at least two month names
+  let mRow = rows.findIndex(r => /^month label$/i.test(txt(r[1])) || /^month label$/i.test(txt(r[0])));
+  if (mRow < 0 || rows[mRow].filter(c => MONTH_RE.test(txt(c))).length < 2)
+    mRow = rows.findIndex(r => r.filter(c => MONTH_RE.test(txt(c))).length >= 2);
+  if (mRow < 0) throw new Error(`couldn't find the month labels row in "${tabName}"`);
+  const cols = rows[mRow].map((c, j) => MONTH_RE.test(txt(c)) ? j : -1).filter(j => j >= 0);
+  const months = cols.map(j => txt(rows[mRow][j]));
+  const first = cols[0];
+  const items = new Map(), money = {};
+  const item = name => { if (!items.has(name)) items.set(name, {}); return items.get(name); };
+
+  for (let r = mRow + 1; r < rows.length; r++){
+    const row = rows[r];
+    const label = row.slice(0, first).map(txt).find(Boolean) || "";
+    if (!label) continue;
+    const values = cols.map(j => num(row[j]));
+    const cut = label.lastIndexOf(" - ");
+    if (cut > 0){
+      const it = item(label.slice(0, cut).trim()), measure = label.slice(cut + 3).toLowerCase();
+      if (/unit cost/.test(measure)) it.unitCost = values.find(v => v !== null) ?? null;
+      else if (/opening/.test(measure) && /central/.test(measure)) it.openC = values;
+      else if (/opening/.test(measure)) it.openG = values;
+      else if (/inbound/.test(measure)) it.inbound = values;
+      else if (/units? out/.test(measure)) it.out = values;
+    } else {
+      if (/storage cost/i.test(label)) money.storage = values;
+      else if (/delivery cost/i.test(label)) money.delivery = values;
+      else if (/eshop sales/i.test(label)) money.sales = values;
+      else if (/paid|credited/i.test(label)) money.paid = values;
+    }
+  }
+  return {months, items, money};
+}
+
+function buildModel(sheets){
+  // Join the tabs side by side, in the order listed in CONFIG.SHEETS
+  const months = sheets.flatMap(s => s.months);
+  const n = months.length;
+  const blank = () => Array(n).fill(null);
+  const items = new Map(), money = {storage: blank(), delivery: blank(), sales: blank(), paid: blank()};
+  let off = 0;
+  for (const s of sheets){
+    for (const [name, src] of s.items){
+      if (!items.has(name)) items.set(name, {name, openG: blank(), openC: null, inbound: blank(), out: blank(), unitCost: null});
+      const it = items.get(name);
+      for (const k of ["openG", "openC", "inbound", "out"]){
+        if (!src[k]) continue;
+        if (!it[k]) it[k] = blank();
+        src[k].forEach((v, i) => { it[k][off + i] = v; });
+      }
+      if (src.unitCost !== undefined && src.unitCost !== null) it.unitCost = src.unitCost;
+    }
+    for (const k of Object.keys(money)) (s.money[k] || []).forEach((v, i) => { money[k][off + i] = v; });
+    off += s.months.length;
+  }
+  if (!items.size) throw new Error("couldn't find any item rows in the Data tabs");
+
+  // Per item
+  const tot = {open: blank(), inbound: blank(), out: blank(), close: blank(), closeV: blank()};
+  const itemBlocks = [...items.values()].map(it => {
+    const cost = it.unitCost ?? CONFIG.UNIT_COSTS[it.name] ?? null;
+    const open = it.openG.map((v, i) => it.openC ? addN(v, it.openC[i]) : v);
+    const close = open.map((v, i) => addN(v, it.inbound[i], it.out[i] === null ? null : -it.out[i]));
+    const closeV = close.map(v => v === null || cost === null ? null : v * cost);
+    for (let i = 0; i < n; i++){
+      tot.open[i] = addN(tot.open[i], open[i]);
+      tot.inbound[i] = addN(tot.inbound[i], it.inbound[i]);
+      tot.out[i] = addN(tot.out[i], it.out[i]);
+      tot.close[i] = addN(tot.close[i], close[i]);
+      tot.closeV[i] = addN(tot.closeV[i], closeV[i]);
+    }
+    const series = it.openC
+      ? [{label: "Opening stock - German warehouse", values: it.openG}, {label: "Opening stock - central warehouse", values: it.openC}, {label: "Opening stock - total", values: open}]
+      : [{label: "Opening stock - German warehouse", values: it.openG}];
+    series.push({label: "Inbound units", values: it.inbound}, {label: "Units out", values: it.out},
+                {label: "Closing stock (units)", values: close}, {label: "Closing stock value", values: closeV});
+    return {name: it.name, unitCost: cost, months, series};
+  });
+
+  // Money
+  const net = months.map((_, i) => {
+    const s = money.sales[i], st = money.storage[i], d = money.delivery[i];
+    return s === null && st === null && d === null ? null : (s || 0) - (st || 0) - (d || 0);
+  });
+  let run = 0, seen = false;
+  const balance = months.map((_, i) => {
+    if (net[i] !== null || money.paid[i] !== null){ seen = true; run += (net[i] || 0) - (money.paid[i] || 0); }
+    return seen ? run : null;
+  });
+
+  return {
+    title: CONFIG.TITLE, subtitle: CONFIG.SUBTITLE, months, items: itemBlocks,
+    totals: {name: "All items", months, series: [
+      {label: "Opening stock (units)", values: tot.open},
+      {label: "Inbound units", values: tot.inbound},
+      {label: "Units out (eShop and Uber orders)", values: tot.out},
+      {label: "Closing stock (units)", values: tot.close},
+      {label: "Closing stock value", values: tot.closeV},
+      {label: "Storage cost", values: money.storage},
+      {label: "Delivery cost", values: money.delivery},
+      {label: "eShop sales value", values: money.sales},
+      {label: "Net movement in month", values: net},
+      {label: "Paid or credited back", values: money.paid},
+      {label: "Balance payable (cumulative)", values: balance}
+    ]}
+  };
+}
+
+const pick = (block, re, n) => (block.series.find(s => re.test(s.label)) || {}).values || Array(n).fill(null);
+
+function totalsSeries(m){
+  const n = m.months.length, t = m.totals;
+  return {
+    opening:  pick(t, /^opening stock/i, n),
+    inbound:  pick(t, /^inbound/i, n),
+    out:      pick(t, /^units out/i, n),
+    closing:  pick(t, /^closing stock(?! value)/i, n),
+    closingV: pick(t, /^closing stock value/i, n),
+    storage:  pick(t, /^storage cost/i, n),
+    delivery: pick(t, /^delivery cost/i, n),
+    sales:    pick(t, /^eshop sales/i, n),
+    net:      pick(t, /^net movement/i, n),
+    paid:     pick(t, /^paid or credited/i, n),
+    balance:  pick(t, /^balance payable/i, n)
+  };
+}
+
+/* ===================== State ===================== */
+const state = {model: null, s: 0, e: 0, pending: null, charts: {}, firstRender: true};
+
+function restoreRange(){
+  const m = state.model;
+  let s = 0, e = m.months.length - 1;
+  try{
+    const saved = JSON.parse(localStorage.getItem("ugd-range") || "null");
+    if (saved){
+      const si = m.months.indexOf(saved.s), ei = m.months.indexOf(saved.e);
+      if (si >= 0 && ei >= si){ s = si; e = ei; }
+    }
+  } catch(_){}
+  if (state.model.__keep){ s = Math.min(state.s, m.months.length - 1); e = Math.min(state.e, m.months.length - 1); }
+  state.s = s; state.e = e;
+}
+function saveRange(){
+  try{ localStorage.setItem("ugd-range", JSON.stringify({s: state.model.months[state.s], e: state.model.months[state.e]})); } catch(_){}
+}
+function setRange(s, e){
+  if (s > e) [s, e] = [e, s];
+  state.s = s; state.e = e; saveRange(); render();
+}
+
+/* ===================== Rendering ===================== */
+function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function render(){
+  const m = state.model; if (!m) return;
+  const T = totalsSeries(m), {s, e} = state, months = m.months;
+  const hasData = i => T.out[i] !== null || T.inbound[i] !== null;
+
+  $("title").textContent = m.title || $("title").textContent;
+  $("subtitle").textContent = m.subtitle;
+
+  // Selects
+  for (const [id, val] of [["startSel", s], ["endSel", e]]){
+    const sel = $(id);
+    sel.innerHTML = months.map((mo, i) => `<option value="${i}">${esc(mo)}</option>`).join("");
+    sel.value = val;
+  }
+  $("railHint").textContent = state.pending !== null ? `Now click the last month (started at ${months[state.pending]}).` : "Or click two months below.";
+
+  // Rail
+  const maxClose = Math.max(1, ...T.closing.map(v => v || 0));
+  const rail = $("rail");
+  rail.style.setProperty("--n", months.length);
+  rail.innerHTML = months.map((mo, i) => {
+    const [mn, yr] = mo.split(/\s+/);
+    const v = T.closing[i];
+    const cls = ["cell", i >= s && i <= e ? "in" : "", i === s || i === e ? "edge" : "", hasData(i) ? "" : "nodata"].join(" ");
+    return `<button type="button" class="${cls}" data-i="${i}" aria-pressed="${i >= s && i <= e}" aria-label="${esc(mo)}, closing stock ${fmt(v)} units">
+      ${i > 0 && /^jan/i.test(mn) ? '<span class="yr-start" aria-hidden="true"></span>' : ""}<span><span class="m">${esc(mn)}</span> <span class="y">${esc(yr || "")}</span></span>
+      <span class="bar"><i style="height:${Math.round(((v || 0) / maxClose) * 100)}%"></i></span>
+      <span class="val">${hasData(i) ? fmt(v) : "No data yet"}</span></button>`;
+  }).join("");
+
+  // Ledger
+  const endName = months[e], startName = months[s];
+  const fig = (k, v, n, key) => `<div class="fig${key ? " key" : ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  $("stockRow").innerHTML = `<h2>Stock</h2>` +
+    fig("Opening stock", fmt(T.opening[s]), `units at start of ${esc(startName)}`) +
+    fig("Inbound units", fmt(sum(T.inbound, s, e)), "received into stock") +
+    fig("Units out", fmt(sum(T.out, s, e)), "eShop sales plus orders placed by Uber", true) +
+    fig("Closing stock", fmt(T.closing[e]), `units at end of ${esc(endName)}, both warehouses`, true) +
+    fig("Closing stock value", fmt(T.closingV[e], true), "at purchase cost per unit");
+  $("moneyRow").innerHTML = `<h2>Money</h2>` +
+    fig("eShop sales value", fmt(sum(T.sales, s, e), true), "net received, owed back to Uber Germany") +
+    fig("Storage cost", fmt(sum(T.storage, s, e), true), "for the selected range") +
+    fig("Delivery cost", fmt(sum(T.delivery, s, e), true), "charged on orders placed by Uber") +
+    fig("Net movement", fmt(sum(T.net, s, e), true), "sales less storage and delivery", true) +
+    fig("Balance payable", fmt(T.balance[e], true), `cumulative at end of ${esc(endName)}`, true);
+
+  // Item mix
+  const mix = m.items.map(it => ({name: it.name, v: sum(pick(it, /^units out/i, months.length), s, e)})).sort((a, b) => b.v - a.v);
+  const mixTotal = mix.reduce((a, x) => a + x.v, 0);
+  const mixMax = Math.max(1, ...mix.map(x => x.v));
+  $("mixLead").textContent = `Units out from ${startName} to ${endName}: ${fmtUnits.format(mixTotal)} in total.`;
+  $("mix").innerHTML = mix.map(x => `<li><span class="name">${esc(x.name)}</span>
+    <span class="num">${fmtUnits.format(x.v)}<span class="share">${mixTotal ? Math.round(x.v / mixTotal * 100) : 0}%</span></span>
+    <span class="track"><i style="width:${(x.v / mixMax) * 100}%"></i></span></li>`).join("");
+
+  // Month table
+  const inR = i => i >= s && i <= e;
+  const strong = /^(units out|closing stock \(|net movement|balance payable)/i;
+  $("monthTable").innerHTML =
+    `<thead><tr><th>Measure</th>${months.map((mo, i) => `<th class="${inR(i) ? "" : "out"}">${esc(mo)}</th>`).join("")}</tr></thead>
+     <tbody>${m.totals.series.map(r => `<tr class="${strong.test(r.label) ? "strong" : ""}"><td>${esc(r.label)}</td>${
+       r.values.map((v, i) => `<td class="${inR(i) ? "" : "out"} ${v === null ? "blank" : ""}">${fmt(v, isMoney(r.label))}</td>`).join("")}</tr>`).join("")}</tbody>`;
+
+  // Items
+  const openNames = new Set([...document.querySelectorAll("#items details[open]")].map(d => d.dataset.name));
+  $("items").innerHTML = m.items.map(it => {
+    const n = months.length;
+    const out = pick(it, /^units out/i, n), inb = pick(it, /^inbound/i, n), cl = pick(it, /^closing stock(?! value)/i, n);
+    return `<details data-name="${esc(it.name)}" ${openNames.has(it.name) ? "open" : ""}>
+      <summary>
+        <span class="nm">${esc(it.name)}</span>
+        <span class="st"><span>Unit cost</span><b>${it.unitCost === null ? "–" : fmtEur.format(it.unitCost)}</b></span>
+        <span class="st"><span>Inbound in range</span><b>${fmtUnits.format(sum(inb, s, e))}</b></span>
+        <span class="st"><span>Out in range</span><b>${fmtUnits.format(sum(out, s, e))}</b></span>
+        <span class="st"><span>Closing, ${esc(endName)}</span><b>${fmt(cl[e])}</b></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </summary>
+      <div class="body scroll"><table>
+        <thead><tr><th>Measure</th>${it.months.map((mo, i) => `<th class="${inR(i) ? "" : "out"}">${esc(mo)}</th>`).join("")}</tr></thead>
+        <tbody>${it.series.map(r => `<tr><td>${esc(r.label)}</td>${r.values.map((v, i) => `<td class="${inR(i) ? "" : "out"} ${v === null ? "blank" : ""}">${fmt(v, isMoney(r.label))}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div></details>`;
+  }).join("");
+
+  renderCharts(T);
+  state.firstRender = false;
+}
+
+function renderCharts(T){
+  if (!window.Chart) return;
+  const m = state.model, {s, e} = state, months = m.months;
+  const ink = css("--ink"), muted = css("--muted"), line = css("--line"), yellow = css("--yellow"), slate = css("--slate"), red = css("--red");
+  const fade = (c, i) => (i >= s && i <= e) ? c : c + "55";
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = muted;
+  const anim = state.firstRender ? {} : false;
+
+  // Flow chart
+  const flowData = {
+    labels: months,
+    datasets: [
+      {type: "bar", label: "Inbound units", data: T.inbound.map(v => v ?? null), backgroundColor: months.map((_, i) => fade(yellow, i)), stack: "f", yAxisID: "y"},
+      {type: "bar", label: "Units out", data: T.out.map(v => v === null ? null : -v), backgroundColor: months.map((_, i) => fade(slate, i)), stack: "f", yAxisID: "y"},
+      {type: "line", label: "Closing stock", data: T.closing, borderColor: ink, backgroundColor: ink, pointRadius: 3, tension: .25, yAxisID: "y1"}
+    ]
+  };
+  const flowOpts = {
+    responsive: true, maintainAspectRatio: false, animation: anim,
+    interaction: {mode: "index", intersect: false},
+    plugins: {legend: {position: "bottom", labels: {boxWidth: 12}},
+      tooltip: {callbacks: {label: c => `${c.dataset.label}: ${fmtUnits.format(Math.abs(c.raw ?? 0))}`}}},
+    scales: {
+      x: {stacked: true, grid: {display: false}},
+      y: {stacked: true, grid: {color: line}, title: {display: true, text: "Units in / out"}, ticks: {callback: v => fmtUnits.format(Math.abs(v))}},
+      y1: {position: "right", grid: {display: false}, title: {display: true, text: "Closing stock"}, beginAtZero: true, ticks: {callback: v => fmtUnits.format(v)}}
+    }
+  };
+  if (state.charts.flow){ state.charts.flow.data = flowData; state.charts.flow.options = flowOpts; state.charts.flow.update(); }
+  else state.charts.flow = new Chart($("flowChart"), {data: flowData, options: flowOpts});
+
+  // Money chart (selected range only)
+  const idx = months.map((_, i) => i).filter(i => i >= s && i <= e);
+  const anyMoney = idx.some(i => [T.sales, T.storage, T.delivery, T.net].some(a => a[i]));
+  $("moneyEmpty").classList.toggle("show", !anyMoney);
+  $("moneyBox").style.display = anyMoney ? "" : "none";
+  const moneyData = {
+    labels: idx.map(i => months[i]),
+    datasets: [
+      {type: "bar", label: "eShop sales value", data: idx.map(i => T.sales[i]), backgroundColor: yellow},
+      {type: "bar", label: "Storage cost", data: idx.map(i => T.storage[i]), backgroundColor: slate},
+      {type: "bar", label: "Delivery cost", data: idx.map(i => T.delivery[i]), backgroundColor: slate + "88"},
+      {type: "line", label: "Net movement", data: idx.map(i => T.net[i]), borderColor: red, backgroundColor: red, pointRadius: 3, tension: .25}
+    ]
+  };
+  const moneyOpts = {
+    responsive: true, maintainAspectRatio: false, animation: anim,
+    interaction: {mode: "index", intersect: false},
+    plugins: {legend: {position: "bottom", labels: {boxWidth: 12}},
+      tooltip: {callbacks: {label: c => `${c.dataset.label}: ${fmtEur.format(c.raw ?? 0)}`}}},
+    scales: {x: {grid: {display: false}}, y: {grid: {color: line}, ticks: {callback: v => fmtEur.format(v)}}}
+  };
+  if (state.charts.money){ state.charts.money.data = moneyData; state.charts.money.options = moneyOpts; state.charts.money.update(); }
+  else state.charts.money = new Chart($("moneyChart"), {data: moneyData, options: moneyOpts});
+}
+
+/* ===================== Export ===================== */
+function exportPeriod(){
+  const m = state.model; if (!m) return;
+  const {s, e} = state, T = totalsSeries(m), months = m.months.slice(s, e + 1);
+  const slice = a => a.slice(s, e + 1).map(v => v ?? "");
+  const period = `${m.months[s]} to ${m.months[e]}`;
+  const sumOrBlank = a => a.slice(s, e + 1).every(v => v === null) ? "" : sum(a, s, e);
+  const endOr = a => a[e] ?? "";
+
+  const summary = [
+    [m.title], [`Period: ${period}`], [`Exported: ${new Date().toLocaleString("en-GB")}`], [],
+    ["Measure", "Value", "Note"],
+    ["Opening stock (units)", T.opening[s] ?? "", `At start of ${m.months[s]}`],
+    ["Inbound units", sumOrBlank(T.inbound), "In period"],
+    ["Units out", sumOrBlank(T.out), "eShop sales plus orders placed by Uber"],
+    ["Closing stock (units)", endOr(T.closing), `At end of ${m.months[e]}, both warehouses`],
+    ["Closing stock value (EUR)", endOr(T.closingV), "At purchase cost per unit"],
+    ["eShop sales value (EUR)", sumOrBlank(T.sales), "In period"],
+    ["Storage cost (EUR)", sumOrBlank(T.storage), "In period"],
+    ["Delivery cost (EUR)", sumOrBlank(T.delivery), "In period"],
+    ["Net movement (EUR)", sumOrBlank(T.net), "Sales less storage and delivery"],
+    ["Balance payable (EUR)", endOr(T.balance), `Cumulative at end of ${m.months[e]}`],
+    [], ["Item mix (units out in period)", "Units"],
+    ...m.items.map(it => [it.name, sum(pick(it, /^units out/i, m.months.length), s, e)])
+  ];
+  const monthly = [["Measure", ...months], ...m.totals.series.map(r => [r.label, ...slice(r.values)])];
+  const byItem = [];
+  m.items.forEach((it, k) => {
+    if (k) byItem.push([]);
+    byItem.push([it.name, "Unit cost (EUR)", it.unitCost ?? ""]);
+    byItem.push(["Measure", ...months]);
+    it.series.forEach(r => byItem.push([r.label, ...slice(r.values)]));
+  });
+
+  const stamp = `${m.months[s]}_to_${m.months[e]}`.replace(/\s+/g, "-");
+  const name = `Uber_Germany_Dashboard_${stamp}`;
+  if (window.XLSX){
+    const wb = XLSX.utils.book_new();
+    const add = (rows, title, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws["!cols"] = widths.map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, ws, title); };
+    add(summary, "Summary", [38, 16, 44]);
+    add(monthly, "Month by month", [36, ...months.map(() => 12)]);
+    add(byItem, "By item", [52, ...months.map(() => 12)]);
+    XLSX.writeFile(wb, name + ".xlsx");
+  } else {
+    // Fallback if the Excel library couldn't load: one CSV with the three sections
+    const rows = [...summary, [], ["MONTH BY MONTH"], ...monthly, [], ["BY ITEM"], ...byItem];
+    const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : c).join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"}));
+    a.download = name + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+}
+
+/* ===================== Refresh loop ===================== */
+let busy = false;
+
+async function refresh(){
+  if (busy || !unlocked) return; busy = true;
+  $("dot").className = "dot loading"; $("syncText").textContent = "Updating";
+  try{
+    const results = await Promise.allSettled(CONFIG.SHEETS.map(async s => readSheet(parseCSV(await loadCsv(s)), s.name)));
+    const ok = results.map((r, i) => r.status === "fulfilled" ? r.value : null).filter(Boolean);
+    const failed = results.map((r, i) => r.status === "rejected" ? `${CONFIG.SHEETS[i].name} (${r.reason?.message || r.reason})` : null).filter(Boolean);
+    if (!ok.length) throw results[0].reason;
+    const model = buildModel(ok);
+    const first = !state.model;
+    if (!first && state.model.months.join() === model.months.join()) model.__keep = true;
+    state.model = model;
+    if (first || !model.__keep) restoreRange();
+    render();
+    if (failed.length){
+      $("banner").className = "banner warn show";
+      $("banner").innerHTML = `Couldn’t read ${esc(failed.join(", "))}. Showing the other tabs. Check the tab name and gid in <code>SHEETS</code> at the top of the script.`;
+    } else $("banner").className = "banner";
+    $("dot").className = "dot";
+    $("syncText").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB")}, refreshes every minute`;
+  } catch (err){
+    $("dot").className = "dot error";
+    $("syncText").textContent = state.model ? "Showing the last figures that loaded" : "Not loaded";
+    $("banner").className = "banner show";
+    $("banner").innerHTML = `Couldn’t read the sheet: ${esc(err?.message || err)}. Check that the sheet is shared as <b>Anyone with the link – Viewer</b>, or publish the Data tabs to the web and paste their CSV links into <code>SHEETS</code> at the top of the script.`;
+  } finally { busy = false; }
+}
+
+$("refreshBtn").addEventListener("click", refresh);
+$("startSel").addEventListener("change", ev => { state.pending = null; setRange(+ev.target.value, state.e); });
+$("endSel").addEventListener("change", ev => { state.pending = null; setRange(state.s, +ev.target.value); });
+$("rail").addEventListener("click", ev => {
+  const b = ev.target.closest(".cell"); if (!b) return;
+  const i = +b.dataset.i;
+  if (state.pending === null){ state.pending = i; setRange(i, i); }
+  else { const p = state.pending; state.pending = null; setRange(p, i); }
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+$("exportBtn").addEventListener("click", exportPeriod);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { state.firstRender = true; render(); });
+
+/* ===================== Password gate ===================== */
+// The unlock is kept in sessionStorage: it survives reloads and a tab left open,
+// and is cleared by the browser when the tab is closed.
+let unlocked = false;
+async function sha256Hex(text){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function unlock(){
+  unlocked = true;
+  $("gate").remove();
+  $("app").hidden = false;
+  refresh();
+  setInterval(() => { if (!document.hidden) refresh(); }, CONFIG.REFRESH_SECONDS * 1000);
+}
+let storedOk = false;
+try { storedOk = sessionStorage.getItem("ugd-auth") === CONFIG.PASSWORD_SHA256; } catch(_){}
+if (storedOk) unlock();
+else {
+  $("pw").focus();
+  $("gateForm").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector("button"); btn.disabled = true;
+    let hash = "";
+    try { hash = await sha256Hex($("pw").value); }
+    catch(_) { $("gateErr").textContent = "This browser can’t check the password here. Open the dashboard from its https:// address."; btn.disabled = false; return; }
+    if (hash === CONFIG.PASSWORD_SHA256){
+      try { sessionStorage.setItem("ugd-auth", hash); } catch(_){}
+      unlock();
+    } else {
+      await new Promise(r => setTimeout(r, 600));
+      $("gateErr").textContent = "That password isn’t right. Try again.";
+      $("pw").value = ""; $("pw").focus(); btn.disabled = false;
+    }
+  });
+}
+</script>
+</body>
+</html>
