@@ -1,4 +1,4 @@
-<!doctype html> 
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -117,6 +117,22 @@ section.panel{margin-top:28px;background:var(--surface);border-radius:6px;paddin
 .empty{display:none;color:var(--muted);padding:40px 0;text-align:center}
 .empty.show{display:block}
 
+.mix-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-start;justify-content:space-between}
+.picker{position:relative}
+.picker > button{display:flex;align-items:center;gap:10px;background:var(--bg);border:1.5px solid var(--line);border-radius:4px;padding:7px 12px;cursor:pointer;font-weight:600;font-size:14px;max-width:280px}
+.picker > button:hover,.picker.open > button{border-color:var(--ink)}
+.picker > button .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker > button .chev{transition:transform .15s;flex:none}
+.picker.open > button .chev{transform:rotate(180deg)}
+.picker .menu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:20;width:min(340px,86vw);background:var(--surface);
+  border:1.5px solid var(--ink);border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px}
+.picker.open .menu{display:block}
+.picker .actions{display:flex;justify-content:space-between;padding:6px 8px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.picker .actions button{background:none;border:0;padding:2px 0;cursor:pointer;font-size:13px;font-weight:600;color:var(--slate);text-decoration:underline;text-underline-offset:3px}
+.picker label{display:flex;gap:10px;align-items:flex-start;padding:8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1.3}
+.picker label:hover{background:var(--bg)}
+.picker input[type=checkbox]{accent-color:var(--yellow);width:16px;height:16px;margin:1px 0 0;flex:none}
+.items .none{color:var(--muted);padding:24px 0;margin:0}
 .mix{list-style:none;margin:0;padding:0}
 .mix li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line)}
 .mix li:first-child{border-top:0}
@@ -203,7 +219,18 @@ footer{margin-top:36px;color:var(--muted);font-size:13px;max-width:80ch}
 
   <div class="grid2">
     <section class="panel">
-      <h2>Item mix</h2>
+      <div class="mix-head">
+        <h2>Item mix</h2>
+        <div class="picker" id="picker">
+          <button type="button" id="pickerBtn" aria-haspopup="true" aria-expanded="false" aria-controls="pickerMenu">
+            <span class="lbl" id="pickerLbl">All products</span><span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <div class="menu" id="pickerMenu" role="group" aria-label="Products to show">
+            <div class="actions"><button type="button" id="pickAll">Select all</button><button type="button" id="pickNone">Clear</button></div>
+            <div id="pickerList"></div>
+          </div>
+        </div>
+      </div>
       <p class="lead" id="mixLead">Units out in the selected range.</p>
       <ul class="mix" id="mix"></ul>
     </section>
@@ -223,7 +250,7 @@ footer{margin-top:36px;color:var(--muted);font-size:13px;max-width:80ch}
 
   <section class="panel items">
     <h2>By item</h2>
-    <p class="lead">Open an item to see its month-by-month detail.</p>
+    <p class="lead" id="itemsLead">Open an item to see its month-by-month detail.</p>
     <div id="items"></div>
   </section>
 
@@ -447,7 +474,26 @@ function totalsSeries(m){
 }
 
 /* ===================== State ===================== */
-const state = {model: null, s: 0, e: 0, pending: null, charts: {}, firstRender: true};
+const state = {model: null, s: 0, e: 0, pending: null, charts: {}, firstRender: true, hidden: new Set(), pickerSig: ""};
+// Products the user has unticked are remembered; new products in the sheet appear ticked.
+try { state.hidden = new Set(JSON.parse(localStorage.getItem("ugd-hidden-items") || "[]")); } catch(_){}
+const visibleItems = m => m.items.filter(it => !state.hidden.has(it.name));
+function saveHidden(){ try { localStorage.setItem("ugd-hidden-items", JSON.stringify([...state.hidden])); } catch(_){} }
+
+function renderPicker(){
+  const m = state.model, names = m.items.map(it => it.name), sig = names.join("\u0001");
+  if (sig !== state.pickerSig){   // rebuild the list only when the products change, so an open menu keeps its place
+    $("pickerList").innerHTML = names.map((nm, i) =>
+      `<label><input type="checkbox" data-name="${esc(nm)}" id="pk${i}"><span>${esc(nm)}</span></label>`).join("");
+    state.pickerSig = sig;
+  }
+  $("pickerList").querySelectorAll("input").forEach(cb => { cb.checked = !state.hidden.has(cb.dataset.name); });
+  const shown = names.filter(nm => !state.hidden.has(nm)).length;
+  $("pickerLbl").textContent = shown === names.length ? `All products (${names.length})`
+    : shown === 0 ? "No products selected"
+    : shown === 1 ? names.find(nm => !state.hidden.has(nm))
+    : `${shown} of ${names.length} products`;
+}
 
 function restoreRange(){
   const m = state.model;
@@ -520,10 +566,16 @@ function render(){
     fig("Balance payable", fmt(T.balance[e], true), `cumulative at end of ${esc(endName)}`, true);
 
   // Item mix
-  const mix = m.items.map(it => ({name: it.name, v: sum(pick(it, /^units out/i, months.length), s, e)})).sort((a, b) => b.v - a.v);
+  renderPicker();
+  const shownItems = visibleItems(m);
+  const mix = shownItems.map(it => ({name: it.name, v: sum(pick(it, /^units out/i, months.length), s, e)})).sort((a, b) => b.v - a.v);
   const mixTotal = mix.reduce((a, x) => a + x.v, 0);
   const mixMax = Math.max(1, ...mix.map(x => x.v));
-  $("mixLead").textContent = `Units out from ${startName} to ${endName}: ${fmtUnits.format(mixTotal)} in total.`;
+  $("mixLead").textContent = shownItems.length === m.items.length
+    ? `Units out from ${startName} to ${endName}: ${fmtUnits.format(mixTotal)} in total.`
+    : `Units out from ${startName} to ${endName} for ${shownItems.length} of ${m.items.length} products: ${fmtUnits.format(mixTotal)} in total. Shares are of the selected products.`;
+  if (!shownItems.length) $("mix").innerHTML = `<li><span class="name" style="color:var(--muted);font-weight:500">No products selected. Use the product list to choose some.</span></li>`;
+  else
   $("mix").innerHTML = mix.map(x => `<li><span class="name">${esc(x.name)}</span>
     <span class="num">${fmtUnits.format(x.v)}<span class="share">${mixTotal ? Math.round(x.v / mixTotal * 100) : 0}%</span></span>
     <span class="track"><i style="width:${(x.v / mixMax) * 100}%"></i></span></li>`).join("");
@@ -538,7 +590,10 @@ function render(){
 
   // Items
   const openNames = new Set([...document.querySelectorAll("#items details[open]")].map(d => d.dataset.name));
-  $("items").innerHTML = m.items.map(it => {
+  $("itemsLead").textContent = shownItems.length === m.items.length
+    ? "Open an item to see its month-by-month detail."
+    : `Showing ${shownItems.length} of ${m.items.length} products, as chosen in Item mix. Open an item to see its month-by-month detail.`;
+  $("items").innerHTML = !shownItems.length ? `<p class="none">No products selected in Item mix.</p>` : shownItems.map(it => {
     const n = months.length;
     const out = pick(it, /^units out/i, n), inb = pick(it, /^inbound/i, n), cl = pick(it, /^closing stock(?! value)/i, n);
     return `<details data-name="${esc(it.name)}" ${openNames.has(it.name) ? "open" : ""}>
@@ -640,11 +695,11 @@ function exportPeriod(){
     ["Net movement (EUR)", sumOrBlank(T.net), "Sales less storage and delivery"],
     ["Balance payable (EUR)", endOr(T.balance), `Cumulative at end of ${m.months[e]}`],
     [], ["Item mix (units out in period)", "Units"],
-    ...m.items.map(it => [it.name, sum(pick(it, /^units out/i, m.months.length), s, e)])
+    ...visibleItems(m).map(it => [it.name, sum(pick(it, /^units out/i, m.months.length), s, e)])
   ];
   const monthly = [["Measure", ...months], ...m.totals.series.map(r => [r.label, ...slice(r.values)])];
   const byItem = [];
-  m.items.forEach((it, k) => {
+  visibleItems(m).forEach((it, k) => {
     if (k) byItem.push([]);
     byItem.push([it.name, "Unit cost (EUR)", it.unitCost ?? ""]);
     byItem.push(["Measure", ...months]);
@@ -713,6 +768,22 @@ $("rail").addEventListener("click", ev => {
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 $("exportBtn").addEventListener("click", exportPeriod);
+
+/* Product picker */
+function setPickerOpen(open){
+  $("picker").classList.toggle("open", open);
+  $("pickerBtn").setAttribute("aria-expanded", open);
+}
+$("pickerBtn").addEventListener("click", () => setPickerOpen(!$("picker").classList.contains("open")));
+document.addEventListener("click", ev => { if (!$("picker").contains(ev.target)) setPickerOpen(false); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("picker").classList.contains("open")){ setPickerOpen(false); $("pickerBtn").focus(); } });
+$("pickerList").addEventListener("change", ev => {
+  const cb = ev.target; if (!cb.dataset.name) return;
+  if (cb.checked) state.hidden.delete(cb.dataset.name); else state.hidden.add(cb.dataset.name);
+  saveHidden(); render();
+});
+$("pickAll").addEventListener("click", () => { state.hidden.clear(); saveHidden(); render(); });
+$("pickNone").addEventListener("click", () => { state.model?.items.forEach(it => state.hidden.add(it.name)); saveHidden(); render(); });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { state.firstRender = true; render(); });
 
 /* ===================== Password gate ===================== */
