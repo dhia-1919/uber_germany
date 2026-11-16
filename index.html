@@ -132,6 +132,21 @@ section.panel{margin-top:28px;background:var(--surface);border-radius:6px;paddin
 .picker label{display:flex;gap:10px;align-items:flex-start;padding:8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1.3}
 .picker label:hover{background:var(--bg)}
 .picker input[type=checkbox]{accent-color:var(--yellow);width:16px;height:16px;margin:1px 0 0;flex:none}
+section.live{margin-top:24px;border-top:4px solid var(--yellow)}
+.live .lead{margin-bottom:0}
+.live-total{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:18px 0 16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.live-total b{font-size:clamp(30px,4vw,44px);font-weight:800;font-stretch:80%;line-height:1}
+.live-total span{color:var(--muted)}
+.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.live-card{background:var(--bg);border-radius:4px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.live-card .nm{font-weight:650;font-size:14px;line-height:1.3}
+.live-card .q{font-size:28px;font-weight:800;font-stretch:82%;line-height:1.05}
+.live-card .q small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px}
+.live-card .wh{font-size:12px;color:var(--muted)}
+.live-card .share{height:6px;background:var(--slate-soft);border-radius:3px;overflow:hidden;margin-top:auto}
+.live-card .share i{display:block;height:100%;background:var(--slate)}
+.live-card.zero .q{color:var(--muted)}
+.live-empty{color:var(--muted);margin:0}
 .items .none{color:var(--muted);padding:24px 0;margin:0}
 .mix{list-style:none;margin:0;padding:0}
 .mix li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line)}
@@ -195,6 +210,26 @@ footer{margin-top:36px;color:var(--muted);font-size:13px;max-width:80ch}
   </header>
   <div class="banner" id="banner" role="alert"></div>
 
+  <section class="panel live" aria-labelledby="liveTitle">
+    <div class="mix-head">
+      <div>
+        <h2 id="liveTitle">Live stock</h2>
+        <p class="lead" id="liveLead">Stock available in the warehouse today.</p>
+      </div>
+      <div class="picker" id="lsPicker">
+          <button type="button" id="lsPickerBtn" aria-haspopup="true" aria-expanded="false" aria-controls="lsPickerMenu">
+            <span class="lbl" id="lsPickerLbl">All gear</span><span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <div class="menu" id="lsPickerMenu" role="group" aria-label="Gear to show">
+            <div class="actions"><button type="button" id="lsPickerAll">Select all</button><button type="button" id="lsPickerNone">Clear</button></div>
+            <div id="lsPickerList"></div>
+          </div>
+        </div>
+    </div>
+    <div class="live-total" id="liveTotal"></div>
+    <div class="live-grid" id="liveGrid"></div>
+  </section>
+
   <div class="range">
     <span>Showing</span>
     <select id="startSel" aria-label="First month"></select>
@@ -226,7 +261,7 @@ footer{margin-top:36px;color:var(--muted);font-size:13px;max-width:80ch}
             <span class="lbl" id="pickerLbl">All products</span><span class="chev" aria-hidden="true">▾</span>
           </button>
           <div class="menu" id="pickerMenu" role="group" aria-label="Products to show">
-            <div class="actions"><button type="button" id="pickAll">Select all</button><button type="button" id="pickNone">Clear</button></div>
+            <div class="actions"><button type="button" id="pickerAll">Select all</button><button type="button" id="pickerNone">Clear</button></div>
             <div id="pickerList"></div>
           </div>
         </div>
@@ -474,25 +509,99 @@ function totalsSeries(m){
 }
 
 /* ===================== State ===================== */
-const state = {model: null, s: 0, e: 0, pending: null, charts: {}, firstRender: true, hidden: new Set(), pickerSig: ""};
-// Products the user has unticked are remembered; new products in the sheet appear ticked.
-try { state.hidden = new Set(JSON.parse(localStorage.getItem("ugd-hidden-items") || "[]")); } catch(_){}
-const visibleItems = m => m.items.filter(it => !state.hidden.has(it.name));
-function saveHidden(){ try { localStorage.setItem("ugd-hidden-items", JSON.stringify([...state.hidden])); } catch(_){} }
+const state = {model: null, s: 0, e: 0, pending: null, charts: {}, firstRender: true};
 
-function renderPicker(){
-  const m = state.model, names = m.items.map(it => it.name), sig = names.join("\u0001");
-  if (sig !== state.pickerSig){   // rebuild the list only when the products change, so an open menu keeps its place
-    $("pickerList").innerHTML = names.map((nm, i) =>
-      `<label><input type="checkbox" data-name="${esc(nm)}" id="pk${i}"><span>${esc(nm)}</span></label>`).join("");
-    state.pickerSig = sig;
+/* Multi-select product picker. Unticked products are remembered per picker;
+   products that appear later in the sheet start ticked. */
+function makePicker(p, storageKey, words){
+  const pk = {hidden: new Set(), sig: ""};
+  try { pk.hidden = new Set(JSON.parse(localStorage.getItem(storageKey) || "[]")); } catch(_){}
+  const save = () => { try { localStorage.setItem(storageKey, JSON.stringify([...pk.hidden])); } catch(_){} };
+  const open = v => { $(p).classList.toggle("open", v); $(p + "Btn").setAttribute("aria-expanded", v); };
+  pk.visible = items => items.filter(it => !pk.hidden.has(it.name));
+  pk.render = names => {
+    const sig = names.join("\u0001");
+    if (sig !== pk.sig){   // rebuild only when the product list changes, so an open menu keeps its place
+      $(p + "List").innerHTML = names.map(nm => `<label><input type="checkbox" data-name="${esc(nm)}"><span>${esc(nm)}</span></label>`).join("");
+      pk.sig = sig;
+    }
+    $(p + "List").querySelectorAll("input").forEach(cb => { cb.checked = !pk.hidden.has(cb.dataset.name); });
+    const shown = names.filter(nm => !pk.hidden.has(nm));
+    $(p + "Lbl").textContent = shown.length === names.length ? `${words.all} (${names.length})`
+      : shown.length === 0 ? words.none
+      : shown.length === 1 ? shown[0]
+      : `${shown.length} of ${names.length} ${words.plural}`;
+  };
+  $(p + "Btn").addEventListener("click", () => open(!$(p).classList.contains("open")));
+  document.addEventListener("click", ev => { if (!$(p).contains(ev.target)) open(false); });
+  document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $(p).classList.contains("open")){ open(false); $(p + "Btn").focus(); } });
+  $(p + "List").addEventListener("change", ev => {
+    const cb = ev.target; if (!cb.dataset.name) return;
+    if (cb.checked) pk.hidden.delete(cb.dataset.name); else pk.hidden.add(cb.dataset.name);
+    save(); render();
+  });
+  $(p + "All").addEventListener("click", () => { pk.hidden.clear(); save(); render(); });
+  $(p + "None").addEventListener("click", () => { state.model?.items.forEach(it => pk.hidden.add(it.name)); save(); render(); });
+  return pk;
+}
+const mixPicker  = makePicker("picker",   "ugd-hidden-items", {all: "All products", none: "No products selected", plural: "products"});
+const livePicker = makePicker("lsPicker", "ugd-hidden-live",  {all: "All gear", none: "No gear selected", plural: "items"});
+const visibleItems = m => mixPicker.visible(m.items);
+const renderPicker = () => mixPicker.render(state.model.items.map(it => it.name));
+
+/* ===================== Live stock =====================
+   Stock available today = the opening stock of NEXT month in the Data tabs
+   (e.g. any day in November 2026 uses the December 2026 opening stock). */
+const MONTH_NAMES = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const monthKey = label => { const [mn, yr] = label.split(/\s+/); return +yr * 12 + MONTH_NAMES.indexOf(mn.slice(0, 3).toLowerCase()); };
+const fmtDay = d => d.toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"});
+
+function liveStock(m){
+  const now = new Date(), cur = now.getFullYear() * 12 + now.getMonth();
+  const keys = m.months.map(monthKey), n = m.months.length;
+  const T = totalsSeries(m);
+  let idx = keys.indexOf(cur + 1), kind = "opening";
+  if (idx < 0 || T.opening[idx] === null){
+    // Next month isn't in the sheet yet: use the latest closing stock we have, up to this month
+    let c = -1;
+    for (let i = 0; i < n; i++) if (keys[i] <= cur && T.closing[i] !== null) c = i;
+    if (c < 0) c = n - 1;
+    idx = c; kind = "closing";
   }
-  $("pickerList").querySelectorAll("input").forEach(cb => { cb.checked = !state.hidden.has(cb.dataset.name); });
-  const shown = names.filter(nm => !state.hidden.has(nm)).length;
-  $("pickerLbl").textContent = shown === names.length ? `All products (${names.length})`
-    : shown === 0 ? "No products selected"
-    : shown === 1 ? names.find(nm => !state.hidden.has(nm))
-    : `${shown} of ${names.length} products`;
+  const rows = m.items.map(it => {
+    const total = kind === "opening" ? pick(it, /^opening stock - total/i, n)[idx] ?? pick(it, /^opening stock - german/i, n)[idx]
+                                     : pick(it, /^closing stock(?! value)/i, n)[idx];
+    const german = kind === "opening" ? pick(it, /^opening stock - german/i, n)[idx] : null;
+    const central = kind === "opening" && it.series.some(s => /central/i.test(s.label)) ? pick(it, /^opening stock - central/i, n)[idx] : null;
+    return {name: it.name, total: total ?? 0, german, central};
+  });
+  return {now, month: m.months[idx], kind, rows};
+}
+
+function renderLive(){
+  const m = state.model, L = liveStock(m);
+  livePicker.render(m.items.map(it => it.name));
+  const shown = livePicker.visible(L.rows);
+  const total = shown.reduce((a, r) => a + r.total, 0);
+  $("liveLead").textContent = L.kind === "opening"
+    ? `Stock available today, ${fmtDay(L.now)}, taken from the opening stock for ${L.month}.`
+    : `Next month isn’t in the sheet yet, so this is the closing stock for ${L.month}.`;
+  $("liveTotal").innerHTML = shown.length
+    ? `<b>${fmtUnits.format(total)}</b><span>units in stock${shown.length === L.rows.length ? ", all gear" : `, ${shown.length} of ${L.rows.length} items selected`}</span>`
+    : "";
+  const max = Math.max(1, ...shown.map(r => r.total));
+  $("liveGrid").innerHTML = !shown.length ? `<p class="live-empty">No gear selected. Use the list to choose some.</p>`
+    : shown.map(r => {
+      const wh = r.central !== null && r.central !== undefined
+        ? `German warehouse ${fmt(r.german ?? 0)}, central warehouse ${fmt(r.central ?? 0)}`
+        : (L.kind === "opening" ? "German warehouse" : "All warehouses");
+      return `<div class="live-card${r.total ? "" : " zero"}">
+        <span class="nm">${esc(r.name)}</span>
+        <span class="q">${fmtUnits.format(r.total)}<small>units</small></span>
+        <span class="wh">${wh}</span>
+        <span class="share" title="${Math.round(r.total / Math.max(1, total) * 100)}% of the selected stock"><i style="width:${r.total / max * 100}%"></i></span>
+      </div>`;
+    }).join("");
 }
 
 function restoreRange(){
@@ -566,6 +675,7 @@ function render(){
     fig("Balance payable", fmt(T.balance[e], true), `cumulative at end of ${esc(endName)}`, true);
 
   // Item mix
+  renderLive();
   renderPicker();
   const shownItems = visibleItems(m);
   const mix = shownItems.map(it => ({name: it.name, v: sum(pick(it, /^units out/i, months.length), s, e)})).sort((a, b) => b.v - a.v);
@@ -706,18 +816,28 @@ function exportPeriod(){
     it.series.forEach(r => byItem.push([r.label, ...slice(r.values)]));
   });
 
+  const L = liveStock(m), liveRows = livePicker.visible(L.rows);
+  const live = [
+    [`Live stock on ${fmtDay(L.now)}`],
+    [L.kind === "opening" ? `Opening stock for ${L.month}` : `Closing stock for ${L.month} (next month not in the sheet yet)`], [],
+    ["Item", "Total units", "German warehouse", "Central warehouse"],
+    ...liveRows.map(r => [r.name, r.total, r.german ?? "", r.central ?? ""]),
+    ["Total", liveRows.reduce((a, r) => a + r.total, 0)]
+  ];
+
   const stamp = `${m.months[s]}_to_${m.months[e]}`.replace(/\s+/g, "-");
   const name = `Uber_Germany_Dashboard_${stamp}`;
   if (window.XLSX){
     const wb = XLSX.utils.book_new();
     const add = (rows, title, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws["!cols"] = widths.map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, ws, title); };
     add(summary, "Summary", [38, 16, 44]);
+    add(live, "Live stock", [52, 14, 18, 18]);
     add(monthly, "Month by month", [36, ...months.map(() => 12)]);
     add(byItem, "By item", [52, ...months.map(() => 12)]);
     XLSX.writeFile(wb, name + ".xlsx");
   } else {
     // Fallback if the Excel library couldn't load: one CSV with the three sections
-    const rows = [...summary, [], ["MONTH BY MONTH"], ...monthly, [], ["BY ITEM"], ...byItem];
+    const rows = [...summary, [], ["LIVE STOCK"], ...live, [], ["MONTH BY MONTH"], ...monthly, [], ["BY ITEM"], ...byItem];
     const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : c).join(",")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"}));
@@ -769,22 +889,7 @@ $("rail").addEventListener("click", ev => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 $("exportBtn").addEventListener("click", exportPeriod);
 
-/* Product picker */
-function setPickerOpen(open){
-  $("picker").classList.toggle("open", open);
-  $("pickerBtn").setAttribute("aria-expanded", open);
-}
-$("pickerBtn").addEventListener("click", () => setPickerOpen(!$("picker").classList.contains("open")));
-document.addEventListener("click", ev => { if (!$("picker").contains(ev.target)) setPickerOpen(false); });
-document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("picker").classList.contains("open")){ setPickerOpen(false); $("pickerBtn").focus(); } });
-$("pickerList").addEventListener("change", ev => {
-  const cb = ev.target; if (!cb.dataset.name) return;
-  if (cb.checked) state.hidden.delete(cb.dataset.name); else state.hidden.add(cb.dataset.name);
-  saveHidden(); render();
-});
-$("pickAll").addEventListener("click", () => { state.hidden.clear(); saveHidden(); render(); });
-$("pickNone").addEventListener("click", () => { state.model?.items.forEach(it => state.hidden.add(it.name)); saveHidden(); render(); });
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { state.firstRender = true; render(); });
+
 
 /* ===================== Password gate ===================== */
 // The unlock is kept in sessionStorage: it survives reloads and a tab left open,
